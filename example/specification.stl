@@ -1,0 +1,4 @@
+input request
+output response
+
+G(request >= 5 -> F_[0,2] response <= 4)

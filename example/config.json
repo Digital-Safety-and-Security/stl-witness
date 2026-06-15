@@ -1,0 +1,29 @@
+{
+  "specification": "specification.stl",
+  "target": "both",
+  "horizon": 8.0,
+  "sample_rate": 100,
+  "runs": 1,
+  "iterations": 200,
+  "optimizer": "dual_annealing",
+  "variables": {
+    "request": {
+      "io": "input",
+      "signal": "step",
+      "parameters": {
+        "amplitude": [0.0, 10.0],
+        "delay": [0.0, 3.0]
+      }
+    },
+    "response": {
+      "io": "output",
+      "signal": "oscillatory_response",
+      "parameters": {
+        "amplitude": [0.0, 10.0],
+        "delay": [0.0, 3.0]
+      }
+    }
+  },
+  "output_csv": "outputs/witness.csv",
+  "output_png": "outputs/witness.png"
+}
