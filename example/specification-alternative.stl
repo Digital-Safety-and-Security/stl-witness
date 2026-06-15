@@ -1,0 +1,4 @@
+input request
+output response
+
+G(response >= 3)

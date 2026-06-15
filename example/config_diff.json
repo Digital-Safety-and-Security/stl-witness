@@ -1,0 +1,30 @@
+{
+  "mode": "differential",
+  "phi1": "specification.stl",
+  "phi2": "specification-alternative.stl",
+  "horizon": 8.0,
+  "dt": 0.01,
+  "runs": 1,
+  "iterations": 200,
+  "targets": "all",
+  "variables": {
+    "request": {
+      "io": "input",
+      "signal": "step",
+      "parameters": {
+        "amplitude": [0.0, 10.0],
+        "delay": [0.0, 3.0]
+      }
+    },
+    "response": {
+      "io": "output",
+      "signal": "second_order_response",
+      "parameters": {
+        "amplitude": [0.0, 10.0],
+        "delay": [0.0, 3.0]
+      }
+    }
+  },
+  "output_csv": "outputs/differential.csv",
+  "output_png": "outputs/differential.png"
+}
