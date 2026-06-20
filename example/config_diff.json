@@ -5,7 +5,8 @@
   "horizon": 8.0,
   "dt": 0.01,
   "runs": 1,
-  "iterations": 200,
+  "max_iterations_per_signal_generation": 200,
+  "witnesses": 2,
   "targets": "all",
   "variables": {
     "request": {

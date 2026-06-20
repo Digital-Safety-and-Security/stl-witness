@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from stl_witness.signals import Signal, time_vector
 
 from .config import DifferentialTarget, Target
-from .monitor import RtamtMonitor
+from .monitor import ExplanationPolarity, RtamtMonitor, TraceExplanation
 from .parameters import SignalParameterSpace
 
 _VACUOUS_OR_INVALID_COST = 1.0e12
@@ -28,6 +28,7 @@ class CandidateTrace:
     accepted: bool
     parameters: Mapping[str, float]
     trace: Mapping[str, Signal]
+    explanations: Mapping[str, tuple[TraceExplanation, ...]] = field(default_factory=dict)
 
 
 class RobustnessObjective:
@@ -52,6 +53,7 @@ class RobustnessObjective:
         parameters = {name: float(value) for name, value in sample.items()}
         trace = self.parameter_space.generate_trace(self.t, parameters)
         robustness = self.monitor.evaluate(trace)
+        polarity = explanation_polarity(robustness)
         cost = robustness_to_cost(robustness, self.target)
         return CandidateTrace(
             target=self.target,
@@ -60,6 +62,7 @@ class RobustnessObjective:
             accepted=is_target_hit(robustness, self.target),
             parameters=parameters,
             trace=trace,
+            explanations=self.monitor.explain(trace, polarity),
         )
 
     def evaluate_vector(self, values: NDArray[np.float64] | list[float]) -> CandidateTrace:
@@ -81,6 +84,7 @@ class DifferentialCandidateTrace:
     accepted: bool
     parameters: Mapping[str, float]
     trace: Mapping[str, Signal]
+    explanations: Mapping[str, tuple[TraceExplanation, ...]] = field(default_factory=dict)
 
 
 class DifferentialRobustnessObjective:
@@ -107,6 +111,10 @@ class DifferentialRobustnessObjective:
         robustness = {
             name: monitor.evaluate(trace) for name, monitor in self.monitors.items()
         }
+        explanations = _merge_explanations(
+            monitor.explain(trace, explanation_polarity(robustness[name]))
+            for name, monitor in self.monitors.items()
+        )
         margins = differential_margins(robustness, self.target)
         cost = differential_robustness_to_cost(robustness, self.target)
         return DifferentialCandidateTrace(
@@ -117,6 +125,7 @@ class DifferentialRobustnessObjective:
             accepted=is_differential_target_hit(robustness, self.target),
             parameters=parameters,
             trace=trace,
+            explanations=explanations,
         )
 
     def evaluate_vector(
@@ -140,6 +149,12 @@ def robustness_to_cost(robustness: float, target: Target) -> float:
     if math.isnan(robustness):
         return _VACUOUS_OR_INVALID_COST
     return robustness
+
+
+def explanation_polarity(robustness: float) -> ExplanationPolarity:
+    """Return the qualitative trace polarity used for explanation overlays."""
+
+    return "satisfaction" if robustness >= 0.0 else "violation"
 
 
 def differential_robustness_to_cost(
@@ -203,6 +218,19 @@ def best_differential_candidate(
     if accepted:
         return max(accepted, key=lambda candidate: min(candidate.margins.values()))
     return min(candidates, key=lambda candidate: candidate.cost)
+
+
+def _merge_explanations(
+    explanations_by_spec,
+) -> dict[str, tuple[TraceExplanation, ...]]:
+    merged: dict[str, list[TraceExplanation]] = {}
+    for explanations in explanations_by_spec:
+        for variable, variable_explanations in explanations.items():
+            merged.setdefault(variable, []).extend(variable_explanations)
+    return {
+        variable: tuple(explanations)
+        for variable, explanations in merged.items()
+    }
 
 
 def _differential_truth_table(target: DifferentialTarget) -> dict[str, bool]:

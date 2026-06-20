@@ -4,7 +4,8 @@
   "horizon": 8.0,
   "sample_rate": 100,
   "runs": 1,
-  "iterations": 200,
+  "max_iterations_per_signal_generation": 200,
+  "witnesses": 5,
   "optimizer": "dual_annealing",
   "variables": {
     "request": {

@@ -15,6 +15,8 @@ _DECL_PREFIX_RE = re.compile(rf"^(input|output)\s*:?\s+(.+)$", re.IGNORECASE)
 _DECL_SUFFIX_RE = re.compile(rf"^({_IDENTIFIER})\s*:\s*(input|output)\b", re.IGNORECASE)
 _TOKEN_RE = re.compile(_IDENTIFIER)
 _ASSIGNMENT_RE = re.compile(rf"^\s*({_IDENTIFIER})\s*=")
+_NUMBER_RE = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+_COMPARISON_RE = r"(?:!==|<=|>=|<|>|==|!=)"
 
 _KEYWORDS = {
     "G",
@@ -57,6 +59,14 @@ class VariableDeclaration:
 
 
 @dataclass(frozen=True)
+class FormulaConstant:
+    """Numeric threshold constant associated with one formula variable."""
+
+    variable: str
+    value: float
+
+
+@dataclass(frozen=True)
 class IaStlSpecification:
     """Parsed IA-STL specification with input/output variable declarations."""
 
@@ -67,6 +77,19 @@ class IaStlSpecification:
     @property
     def variables(self) -> tuple[str, ...]:
         return tuple(decl.name for decl in self.declarations)
+
+    def constants_by_variable(self) -> dict[str, tuple[float, ...]]:
+        """Return numeric predicate constants grouped by signal variable."""
+
+        constants = extract_formula_constants(self.formula, self.variables)
+        grouped: dict[str, list[float]] = {variable: [] for variable in self.variables}
+        for constant in constants:
+            grouped[constant.variable].append(constant.value)
+        return {
+            variable: tuple(values)
+            for variable, values in grouped.items()
+            if values
+        }
 
     def rtamt_formula(self) -> str:
         """Return an RTAMT-friendly formula with an output assignment."""
@@ -162,6 +185,33 @@ def extract_formula_variables(formula: str) -> set[str]:
             continue
         variables.add(token)
     return variables
+
+
+def extract_formula_constants(
+    formula: str,
+    variables: tuple[str, ...] | list[str] | set[str],
+) -> tuple[FormulaConstant, ...]:
+    """Extract numeric constants used as direct thresholds for variables."""
+
+    constants: list[FormulaConstant] = []
+    seen: set[tuple[str, float]] = set()
+
+    for variable in variables:
+        escaped = re.escape(variable)
+        patterns = (
+            rf"\b{escaped}\b\s*{_COMPARISON_RE}\s*({_NUMBER_RE})",
+            rf"({_NUMBER_RE})\s*{_COMPARISON_RE}\s*\b{escaped}\b",
+        )
+        for pattern in patterns:
+            for match in re.finditer(pattern, formula):
+                value = float(match.group(1))
+                key = (variable, value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                constants.append(FormulaConstant(variable=variable, value=value))
+
+    return tuple(constants)
 
 
 def _parse_declaration(line: str) -> list[VariableDeclaration]:

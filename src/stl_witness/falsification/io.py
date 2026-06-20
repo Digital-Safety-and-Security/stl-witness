@@ -8,6 +8,8 @@ from pathlib import Path
 
 from stl_witness.signals import Signal
 
+from .monitor import TraceExplanation
+
 
 def save_trace_csv(trace: Mapping[str, Signal], path: str | Path) -> Path:
     """Save a generated trace as CSV with columns ``time,<variables...>``."""
@@ -39,6 +41,8 @@ def plot_trace(
     output: str | Path | None = None,
     show: bool = False,
     title: str = "STL Witness Trace",
+    constants: Mapping[str, tuple[float, ...]] | None = None,
+    explanations: Mapping[str, tuple[TraceExplanation, ...]] | None = None,
 ) -> Path | None:
     """Plot trace variables as stacked Matplotlib subplots."""
 
@@ -62,9 +66,14 @@ def plot_trace(
         axes = [axes]
 
     fig.suptitle(title)
+    constants = constants or {}
+    explanations = explanations or {}
     for ax, name in zip(axes, names):
         signal = trace[name]
+        _plot_explanations(ax, explanations.get(name, tuple()))
         ax.plot(signal.t, signal.y, linewidth=1.5)
+        for value in constants.get(name, tuple()):
+            ax.axhline(value, color="red", linestyle="--", linewidth=1.0, alpha=0.9)
         ax.set_ylabel(name)
         ax.grid(True, alpha=0.3)
     axes[-1].set_xlabel("Time [s]")
@@ -80,3 +89,20 @@ def plot_trace(
         plt.close(fig)
 
     return output_path
+
+
+def _plot_explanations(ax, explanations: tuple[TraceExplanation, ...]) -> None:
+    for explanation in explanations:
+        color = _explanation_color(explanation)
+        line_alpha = 0.9 if explanation.polarity == "violation" else 0.95
+
+        for start, end in explanation.intervals:
+            ax.axvspan(start, end, color=color, alpha=0.25, linewidth=0)
+        for point in explanation.points:
+            ax.axvline(point, color=color, linewidth=1.4, alpha=line_alpha)
+
+
+def _explanation_color(explanation: TraceExplanation) -> str:
+    if explanation.polarity == "violation":
+        return "red"
+    return "#9be7a4"

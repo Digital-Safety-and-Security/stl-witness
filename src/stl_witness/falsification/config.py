@@ -38,11 +38,18 @@ class FalsificationConfig:
     sample_rate: float | None = 100.0
     runs: int = 1
     iterations: int = 100
+    witnesses: int = 1
     seed: int = 1
     optimizer: Literal["dual_annealing", "uniform_random"] = "dual_annealing"
     backend: Literal["psytaliro", "random", "auto"] = "psytaliro"
     output_csv: Path | None = None
     output_png: Path | None = None
+
+    @property
+    def max_iterations_per_signal_generation(self) -> int:
+        """Maximum falsification iterations used for one witness-generation attempt."""
+
+        return self.iterations
 
 
 @dataclass(frozen=True)
@@ -58,11 +65,18 @@ class DifferentialConfig:
     sample_rate: float | None = 100.0
     runs: int = 1
     iterations: int = 100
+    witnesses: int = 1
     seed: int = 1
     optimizer: Literal["dual_annealing", "uniform_random"] = "dual_annealing"
     backend: Literal["psytaliro", "random", "auto"] = "psytaliro"
     output_csv: Path | None = None
     output_png: Path | None = None
+
+    @property
+    def max_iterations_per_signal_generation(self) -> int:
+        """Maximum falsification iterations used for one witness-generation attempt."""
+
+        return self.iterations
 
 
 def load_config(path: str | Path) -> FalsificationConfig | DifferentialConfig:
@@ -96,7 +110,8 @@ def _load_falsification_config(
         dt=_optional_float(data.get("dt")),
         sample_rate=_time_base_sample_rate(data),
         runs=int(data.get("runs", 1)),
-        iterations=int(data.get("iterations", 100)),
+        iterations=_iterations(data),
+        witnesses=_positive_int(data.get("witnesses", 1), "witnesses"),
         seed=int(data.get("seed", 1)),
         optimizer=data.get("optimizer", "dual_annealing"),
         backend=data.get("backend", "psytaliro"),
@@ -130,7 +145,8 @@ def _load_differential_config(
         dt=_optional_float(data.get("dt")),
         sample_rate=_time_base_sample_rate(data),
         runs=int(data.get("runs", 1)),
-        iterations=int(data.get("iterations", 100)),
+        iterations=_iterations(data),
+        witnesses=_positive_int(data.get("witnesses", 1), "witnesses"),
         seed=int(data.get("seed", 1)),
         optimizer=data.get("optimizer", "dual_annealing"),
         backend=data.get("backend", "psytaliro"),
@@ -204,6 +220,21 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _iterations(data: Mapping[str, Any]) -> int:
+    value = data.get(
+        "max_iterations_per_signal_generation",
+        data.get("iterations", 100),
+    )
+    return _positive_int(value, "max_iterations_per_signal_generation")
+
+
+def _positive_int(value: Any, name: str) -> int:
+    integer = int(value)
+    if integer < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return integer
 
 
 def _time_base_sample_rate(data: Mapping[str, Any]) -> float | None:
