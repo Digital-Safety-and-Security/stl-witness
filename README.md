@@ -17,6 +17,10 @@ signals with additional analysis or simulation tooling.
 - `chirp`
 - `noise`
 - `step_with_overshoot`
+- `transient_disturbance`
+- `monotonic_convergence`
+- `overshooting_convergence`
+- `oscillatory_convergence`
 - `oscillatory_response`
 - `first_order_response`
 - `second_order_response`
@@ -85,12 +89,48 @@ end of the active interval is held:
 sig = ramp(t, slope=0.5, delay=1.0, signal_duration=3.0)
 ```
 
+Ramps can also be defined by their beginning value, target value, ramp start,
+and slope. In this form the signal holds the target after it is reached:
+
+```python
+sig = ramp(t, initial=2.0, target=8.0, start_time=1.0, slope=0.5)
+```
+
+If `target` is below `initial`, the ramp descends toward the target using
+`abs(slope)`. When both `target` and `signal_duration` are set, the duration
+caps the ramping time and the reached value is held.
+
 For burst-like signals such as sinusoids, chirps, pulse trains, and noise,
 samples outside the active interval return to their baseline (`offset`,
 `baseline`, or `mean`).
 
 Older names such as `step_time` and `start_time` are still accepted as aliases
 for `delay`.
+
+## Smooth Output Response Classes
+
+Let `tau = max(t - delay, 0)`, capped to `signal_duration` when that parameter
+is provided. All classes also accept the common time-base parameters `duration`,
+`dt`, `sample_rate`, and `start`.
+
+| ID | Signal class | Formula | Settable response parameters |
+| --- | --- | --- | --- |
+| T4 | `transient_disturbance` | `y(t) = nominal + amplitude * exp(-0.5 * ((tau - center) / width)^2)` | `nominal`, `amplitude`, `center`, `width`, `delay`, `signal_duration`. Use positive `amplitude` for a peak and negative `amplitude` for a valley. |
+| T5 | `monotonic_convergence` | `y(t) = target + (initial - target) * exp(-tau / time_constant)` | `initial`, `target`, `time_constant`, `delay`, `signal_duration`. |
+| T6 | `overshooting_convergence` | `y(t) = target + delta * (-exp(-tau / time_constant) + alpha * (tau / peak_time) * exp(1 - tau / peak_time))`, with `delta = target - initial` and `alpha = overshoot + exp(-peak_time / time_constant)` | `initial`, `target`, `time_constant`, `overshoot`, `peak_time`, `delay`, `signal_duration`. The value is `overshoot * delta` beyond the target at `tau = peak_time`. |
+| T7 | `oscillatory_convergence` | `y(t) = target + (initial - target) * exp(-damping_rate * tau) * cos(2*pi*frequency*tau)` | `initial`, `target`, `damping_rate`, `frequency`, `delay`, `signal_duration`. |
+| T8 | `first_order_response` | `y(t) = offset + initial + gain * amplitude * (1 - exp(-tau / time_constant))` | `offset`, `initial`, `amplitude`, `gain`, `time_constant`, `delay`, `signal_duration`. |
+| T9 | `second_order_response` | `y(t) = offset + initial + gain * amplitude * h_2(tau)`, where `h_2` is the canonical second-order unit-step response for `natural_frequency` and `damping_ratio` | `offset`, `initial`, `amplitude`, `gain`, `damping_ratio`, `natural_frequency`, `delay`, `signal_duration`. |
+
+For T9, let `zeta = damping_ratio` and `omega_n = natural_frequency`.
+If `zeta < 1`, then
+`h_2(tau) = 1 - exp(-zeta*omega_n*tau) * sin(omega_d*tau + phi) / sqrt(1 - zeta^2)`,
+where `omega_d = omega_n * sqrt(1 - zeta^2)` and
+`phi = atan2(sqrt(1 - zeta^2), zeta)`. If `zeta = 1`, then
+`h_2(tau) = 1 - exp(-omega_n*tau) * (1 + omega_n*tau)`. If `zeta > 1`,
+then `h_2(tau) = 1 + (s2*exp(s1*tau) - s1*exp(s2*tau)) / (s1 - s2)`,
+where `s1 = -omega_n * (zeta - sqrt(zeta^2 - 1))` and
+`s2 = -omega_n * (zeta + sqrt(zeta^2 - 1))`.
 
 ## STL Witness Search
 
@@ -163,6 +203,8 @@ PNG plots include red horizontal lines for numeric constants that appear as
 direct signal thresholds in the STL formula. When RTAMT explanations are
 available, violation explanations are shown as translucent red time bands or
 red vertical point markers, while satisfaction explanations use pastel green.
+Use `--no-trace-diagnostics` to skip RTAMT explanation diagnostics and plot
+overlays when only robustness and traces are needed.
 
 Use `witnesses` to request K accepted traces per target. Each witness-generation
 attempt is capped by `max_iterations_per_signal_generation`; older configs may

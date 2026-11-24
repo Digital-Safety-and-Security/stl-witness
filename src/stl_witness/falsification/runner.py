@@ -83,6 +83,7 @@ def run_falsification(config: FalsificationConfig) -> FalsificationResult:
             horizon=config.horizon,
             dt=config.dt,
             sample_rate=config.sample_rate,
+            trace_diagnostics=config.trace_diagnostics,
         )
         results[target] = _run_target(config, target, parameter_space, objective)
 
@@ -106,6 +107,7 @@ def run_differential(config: DifferentialConfig) -> DifferentialResult:
             horizon=config.horizon,
             dt=config.dt,
             sample_rate=config.sample_rate,
+            trace_diagnostics=config.trace_diagnostics,
         )
         results[target] = _run_differential_target(
             config, target, parameter_space, objective

@@ -33,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
         type=_positive_int_arg,
         help="Maximum falsification iterations for each witness-generation attempt.",
     )
+    parser.add_argument(
+        "--no-trace-diagnostics",
+        action="store_true",
+        help="Skip RTAMT trace explanation diagnostics and plot overlays.",
+    )
     parser.add_argument("--show", action="store_true", help="Open Matplotlib windows.")
     args = parser.parse_args(argv)
 
@@ -42,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         or args.png is not None
         or args.witnesses is not None
         or args.iterations is not None
+        or args.no_trace_diagnostics
     ):
         config = _with_overrides(
             config,
@@ -49,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             png=args.png,
             witnesses=args.witnesses,
             iterations=args.iterations,
+            trace_diagnostics=False if args.no_trace_diagnostics else None,
         )
 
     result = (
@@ -114,6 +121,7 @@ def _with_overrides(
     png: Path | None,
     witnesses: int | None,
     iterations: int | None,
+    trace_diagnostics: bool | None,
 ) -> FalsificationConfig | DifferentialConfig:
     common = {
         "variables": config.variables,
@@ -127,6 +135,11 @@ def _with_overrides(
         "seed": config.seed,
         "optimizer": config.optimizer,
         "backend": config.backend,
+        "trace_diagnostics": (
+            config.trace_diagnostics
+            if trace_diagnostics is None
+            else trace_diagnostics
+        ),
         "output_csv": csv or config.output_csv,
         "output_png": png or config.output_png,
     }

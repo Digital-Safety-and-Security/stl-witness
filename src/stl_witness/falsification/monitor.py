@@ -16,7 +16,7 @@ ExplanationPolarity = Literal["satisfaction", "violation"]
 
 @dataclass(frozen=True)
 class TraceExplanation:
-    """Time-domain explanation overlays for one input signal."""
+    """Time-domain explanation overlays for one trace variable."""
 
     polarity: ExplanationPolarity
     intervals: tuple[tuple[float, float], ...] = tuple()
@@ -42,7 +42,7 @@ class RtamtMonitor:
         trace: Mapping[str, Signal],
         polarity: ExplanationPolarity,
     ) -> dict[str, tuple[TraceExplanation, ...]]:
-        """Compute RTAMT explanation overlays for input signals."""
+        """Compute RTAMT explanation overlays for trace variables."""
 
         self._evaluate_raw(trace)
         explainer = getattr(self._monitor, "explainer", None)
@@ -56,15 +56,13 @@ class RtamtMonitor:
         except Exception:
             return {}
 
-        input_variables = tuple(
-            declaration.name
-            for declaration in self.specification.declarations
-            if declaration.io_type == "input"
+        trace_variables = tuple(
+            declaration.name for declaration in self.specification.declarations
         )
         return _normalize_explanations(
             getattr(explainer, "explanations", {}),
             trace,
-            input_variables,
+            trace_variables,
             polarity,
         )
 

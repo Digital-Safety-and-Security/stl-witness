@@ -42,6 +42,7 @@ class FalsificationConfig:
     seed: int = 1
     optimizer: Literal["dual_annealing", "uniform_random"] = "dual_annealing"
     backend: Literal["psytaliro", "random", "auto"] = "psytaliro"
+    trace_diagnostics: bool = True
     output_csv: Path | None = None
     output_png: Path | None = None
 
@@ -69,6 +70,7 @@ class DifferentialConfig:
     seed: int = 1
     optimizer: Literal["dual_annealing", "uniform_random"] = "dual_annealing"
     backend: Literal["psytaliro", "random", "auto"] = "psytaliro"
+    trace_diagnostics: bool = True
     output_csv: Path | None = None
     output_png: Path | None = None
 
@@ -115,6 +117,7 @@ def _load_falsification_config(
         seed=int(data.get("seed", 1)),
         optimizer=data.get("optimizer", "dual_annealing"),
         backend=data.get("backend", "psytaliro"),
+        trace_diagnostics=_bool(data.get("trace_diagnostics", True), "trace_diagnostics"),
         output_csv=output_csv,
         output_png=output_png,
     )
@@ -150,6 +153,7 @@ def _load_differential_config(
         seed=int(data.get("seed", 1)),
         optimizer=data.get("optimizer", "dual_annealing"),
         backend=data.get("backend", "psytaliro"),
+        trace_diagnostics=_bool(data.get("trace_diagnostics", True), "trace_diagnostics"),
         output_csv=_optional_path(config_path, data.get("output_csv")),
         output_png=_optional_path(config_path, data.get("output_png")),
     )
@@ -235,6 +239,18 @@ def _positive_int(value: Any, name: str) -> int:
     if integer < 1:
         raise ValueError(f"{name} must be at least 1")
     return integer
+
+
+def _bool(value: Any, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _time_base_sample_rate(data: Mapping[str, Any]) -> float | None:

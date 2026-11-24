@@ -4,8 +4,11 @@ from .signals import (
     Signal,
     chirp,
     first_order_response,
+    monotonic_convergence,
     noise,
+    oscillatory_convergence,
     oscillatory_response,
+    overshooting_convergence,
     pulse,
     ramp,
     second_order_response,
@@ -14,14 +17,18 @@ from .signals import (
     step,
     step_with_overshoot,
     time_vector,
+    transient_disturbance,
 )
 
 __all__ = [
     "Signal",
     "chirp",
     "first_order_response",
+    "monotonic_convergence",
     "noise",
+    "oscillatory_convergence",
     "oscillatory_response",
+    "overshooting_convergence",
     "pulse",
     "ramp",
     "second_order_response",
@@ -30,4 +37,5 @@ __all__ = [
     "step",
     "step_with_overshoot",
     "time_vector",
+    "transient_disturbance",
 ]

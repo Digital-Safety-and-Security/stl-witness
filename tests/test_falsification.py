@@ -11,13 +11,17 @@ from stl_witness.falsification.cli import _target_path
 from stl_witness.falsification.io import save_trace_csv
 from stl_witness.falsification.objective import (
     CandidateTrace,
+    RobustnessObjective,
     differential_robustness_to_cost,
     is_differential_target_hit,
     is_target_hit,
     robustness_to_cost,
 )
 from stl_witness.falsification.parameters import SignalParameterSpace, available_signal_classes
-from stl_witness.falsification.monitor import _normalize_explanation_items
+from stl_witness.falsification.monitor import (
+    _normalize_explanation_items,
+    _normalize_explanations,
+)
 from stl_witness.falsification.runner import _select_target_witnesses
 from stl_witness.falsification.specification import (
     extract_formula_constants,
@@ -131,14 +135,14 @@ class FalsificationArchitectureTests(unittest.TestCase):
                 ),
                 "response": VariableConfig(
                     signal="ramp",
-                    parameters={"slope": [0, 5]},
+                    parameters={"slope": [0, 5], "target": [1, 4]},
                 ),
             },
         )
 
         self.assertEqual(
             set(space.bounds),
-            {"request.amplitude", "response.slope"},
+            {"request.amplitude", "response.slope", "response.target"},
         )
 
     def test_robustness_costs_encode_targets(self) -> None:
@@ -219,6 +223,62 @@ class FalsificationArchitectureTests(unittest.TestCase):
         self.assertEqual(config.max_iterations_per_signal_generation, 17)
         self.assertEqual(config.witnesses, 3)
 
+    def test_config_loads_trace_diagnostics_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "specification": "request_response.stl",
+                        "trace_diagnostics": False,
+                        "variables": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path)
+
+        self.assertFalse(config.trace_diagnostics)
+
+    def test_objective_can_skip_trace_diagnostics(self) -> None:
+        class MonitorWithoutDiagnostics:
+            def evaluate(self, trace) -> float:
+                return 1.0
+
+            def explain(self, trace, polarity):  # pragma: no cover - must not be called
+                raise AssertionError("trace diagnostics should be disabled")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "request.stl"
+            path.write_text("input request\nG(request >= 1)", encoding="utf-8")
+            spec = read_ia_stl_file(path)
+
+        space = SignalParameterSpace.from_spec(
+            spec,
+            {
+                "request": VariableConfig(
+                    signal="step",
+                    parameters={"amplitude": [0, 10]},
+                )
+            },
+        )
+        objective = RobustnessObjective(
+            target="satisfy",
+            parameter_space=space,
+            monitor=MonitorWithoutDiagnostics(),
+            horizon=1.0,
+            dt=1.0,
+            sample_rate=None,
+            trace_diagnostics=False,
+        )
+
+        candidate = objective.evaluate({"request.amplitude": 2.0})
+
+        self.assertTrue(candidate.accepted)
+        self.assertEqual(candidate.explanations, {})
+
     def test_witness_selection_prefers_parameter_space_variability(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "request.stl"
@@ -287,6 +347,24 @@ class FalsificationArchitectureTests(unittest.TestCase):
 
         self.assertEqual(intervals, ((0.5, 1.0),))
         self.assertEqual(points, (1.5,))
+
+    def test_explanation_normalization_keeps_output_variables(self) -> None:
+        from stl_witness import step
+
+        trace = {
+            "T": step([0.0, 1.0, 2.0], amplitude=70.0),
+            "cooling": step([0.0, 1.0, 2.0], amplitude=1.0),
+        }
+        explanations = _normalize_explanations(
+            {"T": [[1, 2]], "cooling": [[2, 2]]},
+            trace,
+            ("T", "cooling"),
+            "violation",
+        )
+
+        self.assertIn("T", explanations)
+        self.assertIn("cooling", explanations)
+        self.assertEqual(explanations["cooling"][0].points, (2.0,))
 
     def test_csv_export_writes_time_and_variables(self) -> None:
         from stl_witness import step

@@ -43,10 +43,12 @@ class RobustnessObjective:
         horizon: float,
         dt: float | None,
         sample_rate: float | None,
+        trace_diagnostics: bool = True,
     ):
         self.target = target
         self.parameter_space = parameter_space
         self.monitor = monitor
+        self.trace_diagnostics = trace_diagnostics
         self.t = time_vector(horizon, dt=dt, sample_rate=sample_rate)
 
     def evaluate(self, sample: Mapping[str, float]) -> CandidateTrace:
@@ -62,7 +64,9 @@ class RobustnessObjective:
             accepted=is_target_hit(robustness, self.target),
             parameters=parameters,
             trace=trace,
-            explanations=self.monitor.explain(trace, polarity),
+            explanations=(
+                self.monitor.explain(trace, polarity) if self.trace_diagnostics else {}
+            ),
         )
 
     def evaluate_vector(self, values: NDArray[np.float64] | list[float]) -> CandidateTrace:
@@ -99,10 +103,12 @@ class DifferentialRobustnessObjective:
         horizon: float,
         dt: float | None,
         sample_rate: float | None,
+        trace_diagnostics: bool = True,
     ):
         self.target = target
         self.parameter_space = parameter_space
         self.monitors = dict(monitors)
+        self.trace_diagnostics = trace_diagnostics
         self.t = time_vector(horizon, dt=dt, sample_rate=sample_rate)
 
     def evaluate(self, sample: Mapping[str, float]) -> DifferentialCandidateTrace:
@@ -111,9 +117,13 @@ class DifferentialRobustnessObjective:
         robustness = {
             name: monitor.evaluate(trace) for name, monitor in self.monitors.items()
         }
-        explanations = _merge_explanations(
-            monitor.explain(trace, explanation_polarity(robustness[name]))
-            for name, monitor in self.monitors.items()
+        explanations = (
+            _merge_explanations(
+                monitor.explain(trace, explanation_polarity(robustness[name]))
+                for name, monitor in self.monitors.items()
+            )
+            if self.trace_diagnostics
+            else {}
         )
         margins = differential_margins(robustness, self.target)
         cost = differential_robustness_to_cost(robustness, self.target)

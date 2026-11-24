@@ -7,8 +7,11 @@ from stl_witness import (
     Signal,
     chirp,
     first_order_response,
+    monotonic_convergence,
     noise,
+    oscillatory_convergence,
     oscillatory_response,
+    overshooting_convergence,
     pulse,
     ramp,
     second_order_response,
@@ -17,6 +20,7 @@ from stl_witness import (
     step,
     step_with_overshoot,
     time_vector,
+    transient_disturbance,
 )
 
 
@@ -58,6 +62,34 @@ class SignalGenerationTests(unittest.TestCase):
         sig = ramp([0.0, 1.0, 2.0, 3.0], slope=2.0, delay=1.0, signal_duration=1.0)
 
         np.testing.assert_allclose(sig.y, [0.0, 0.0, 2.0, 2.0])
+
+    def test_ramp_clamps_to_target_value(self) -> None:
+        sig = ramp(
+            [0.0, 1.0, 2.0, 3.0],
+            initial=2.0,
+            target=5.0,
+            start_time=1.0,
+            slope=2.0,
+        )
+
+        np.testing.assert_allclose(sig.y, [2.0, 2.0, 4.0, 5.0])
+        self.assertEqual(sig.parameters["target"], 5.0)
+
+    def test_ramp_can_descend_to_target_value(self) -> None:
+        sig = ramp([0.0, 1.0, 2.0, 3.0], initial=5.0, target=1.0, slope=2.0)
+
+        np.testing.assert_allclose(sig.y, [5.0, 3.0, 1.0, 1.0])
+
+    def test_ramp_target_respects_active_duration_cap(self) -> None:
+        sig = ramp(
+            [0.0, 1.0, 2.0, 3.0],
+            initial=0.0,
+            target=10.0,
+            slope=2.0,
+            signal_duration=1.0,
+        )
+
+        np.testing.assert_allclose(sig.y, [0.0, 2.0, 2.0, 2.0])
 
     def test_sinusoid_uses_hz_and_radians(self) -> None:
         sig = sinusoid([0.0, 0.25, 0.5], amplitude=2.0, frequency=1.0)
@@ -146,6 +178,51 @@ class SignalGenerationTests(unittest.TestCase):
         self.assertNotEqual(sig.y[2], 5.0)
         self.assertEqual(sig.y[3], 5.0)
 
+    def test_transient_disturbance_creates_peak_and_returns_to_nominal(self) -> None:
+        sig = transient_disturbance(
+            [0.0, 1.0, 3.0],
+            nominal=2.0,
+            amplitude=5.0,
+            center=1.0,
+            width=0.25,
+        )
+
+        self.assertAlmostEqual(sig.y[1], 7.0)
+        self.assertAlmostEqual(sig.y[-1], 2.0, places=12)
+
+    def test_monotonic_convergence_approaches_target_without_overshoot(self) -> None:
+        sig = monotonic_convergence([0.0, 1.0, 2.0, 3.0], initial=0.0, target=1.0)
+
+        self.assertTrue(np.all(np.diff(sig.y) >= 0.0))
+        self.assertLess(np.max(sig.y), 1.0)
+
+    def test_overshooting_convergence_exceeds_target_at_peak_time(self) -> None:
+        sig = overshooting_convergence(
+            [0.0, 1.0, 6.0],
+            initial=0.0,
+            target=1.0,
+            time_constant=1.0,
+            overshoot=0.2,
+            peak_time=1.0,
+        )
+
+        self.assertAlmostEqual(sig.y[0], 0.0)
+        self.assertAlmostEqual(sig.y[1], 1.2)
+        self.assertAlmostEqual(sig.y[-1], 1.0, places=1)
+
+    def test_oscillatory_convergence_crosses_target_with_decaying_amplitude(self) -> None:
+        sig = oscillatory_convergence(
+            [0.0, 1.0, 2.0, 3.0],
+            initial=1.0,
+            target=0.0,
+            damping_rate=0.5,
+            frequency=0.5,
+        )
+
+        self.assertGreater(sig.y[0], 0.0)
+        self.assertLess(sig.y[1], 0.0)
+        self.assertLess(abs(sig.y[-1]), abs(sig.y[1]))
+
     def test_first_order_response_matches_one_time_constant_value(self) -> None:
         sig = first_order_response([0.0, 1.0], amplitude=2.0, time_constant=1.0)
 
@@ -201,6 +278,9 @@ class SignalGenerationTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             ramp(delay=1.0, start_time=2.0)
+
+        with self.assertRaises(ValueError):
+            ramp(target=1.0, slope=0.0)
 
 
 if __name__ == "__main__":

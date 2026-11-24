@@ -157,32 +157,47 @@ def ramp(
     sample_rate: float | None = None,
     start: float = 0.0,
     slope: float = 1.0,
+    target: float | None = None,
     delay: float | None = None,
     start_time: float | None = None,
     signal_duration: float | None = None,
     initial: float = 0.0,
     offset: float = 0.0,
 ) -> Signal:
-    """Generate a ramp with configurable slope, delay, and duration.
+    """Generate a ramp with configurable initial value, target, start, and slope.
 
-    When ``signal_duration`` is provided, the ramp rises for that many seconds
-    after ``delay`` and then remains at the reached target value.
+    The signal holds ``offset + initial`` until ``delay``. When ``target`` is
+    provided, the ramp moves toward ``offset + target`` at ``abs(slope)`` after
+    ``delay`` and holds the target value once it is reached. ``signal_duration``
+    may still cap the active ramping time, in which case the reached value is
+    held even if the target has not been reached. When ``target`` is omitted,
+    the legacy duration-based form ``offset + initial + slope * tau`` is used.
     ``start_time`` is kept as a backwards compatible alias for ``delay``.
     """
 
     time = _resolve_time(t, duration, dt, sample_rate, start)
     slope = _finite("slope", slope)
+    target = None if target is None else _finite("target", target)
     delay = _resolve_delay(delay, legacy_name="start_time", legacy_value=start_time)
     signal_duration = _optional_nonnegative("signal_duration", signal_duration)
     initial = _finite("initial", initial)
     offset = _finite("offset", offset)
     tau = _elapsed_time(time, delay, signal_duration)
-    values = offset + initial + slope * tau
+    if target is None:
+        values = offset + initial + slope * tau
+    else:
+        values = offset + _targeted_ramp_values(
+            tau,
+            initial=initial,
+            target=target,
+            slope=slope,
+        )
     return _signal(
         "ramp",
         time,
         values,
         slope=slope,
+        target=target,
         delay=delay,
         start_time=delay,
         signal_duration=signal_duration,
@@ -555,6 +570,196 @@ def step_with_overshoot(
     )
 
 
+def transient_disturbance(
+    t: ArrayLike | None = None,
+    *,
+    duration: float = 10.0,
+    dt: float | None = None,
+    sample_rate: float | None = None,
+    start: float = 0.0,
+    nominal: float = 0.0,
+    amplitude: float = 1.0,
+    center: float = 1.0,
+    width: float = 0.25,
+    delay: float = 0.0,
+    signal_duration: float | None = None,
+) -> Signal:
+    """Generate a smooth transient peak or valley around ``nominal``.
+
+    The response uses a Gaussian disturbance,
+    ``nominal + amplitude * exp(-0.5 * ((tau - center) / width)**2)``.
+    Negative ``amplitude`` values create valleys. When ``signal_duration`` is
+    provided, ``tau`` is capped after that many seconds and the reached value
+    is held.
+    """
+
+    time = _resolve_time(t, duration, dt, sample_rate, start)
+    nominal = _finite("nominal", nominal)
+    amplitude = _finite("amplitude", amplitude)
+    center = _nonnegative("center", center)
+    width = _positive("width", width)
+    delay = _finite("delay", delay)
+    signal_duration = _optional_nonnegative("signal_duration", signal_duration)
+    tau = _elapsed_time(time, delay, signal_duration)
+    response = amplitude * np.exp(-0.5 * ((tau - center) / width) ** 2)
+    values = nominal + response
+    values[time < delay] = nominal
+    return _signal(
+        "transient_disturbance",
+        time,
+        values,
+        nominal=nominal,
+        amplitude=amplitude,
+        center=center,
+        width=width,
+        delay=delay,
+        signal_duration=signal_duration,
+    )
+
+
+def monotonic_convergence(
+    t: ArrayLike | None = None,
+    *,
+    duration: float = 10.0,
+    dt: float | None = None,
+    sample_rate: float | None = None,
+    start: float = 0.0,
+    initial: float = 0.0,
+    target: float = 1.0,
+    time_constant: float = 1.0,
+    delay: float = 0.0,
+    signal_duration: float | None = None,
+) -> Signal:
+    """Generate smooth monotonic convergence to ``target``.
+
+    The response is ``target + (initial - target) * exp(-tau / time_constant)``.
+    When ``signal_duration`` is provided, the response evolves for that many
+    seconds after ``delay`` and then holds the reached value.
+    """
+
+    time = _resolve_time(t, duration, dt, sample_rate, start)
+    initial = _finite("initial", initial)
+    target = _finite("target", target)
+    time_constant = _positive("time_constant", time_constant)
+    delay = _finite("delay", delay)
+    signal_duration = _optional_nonnegative("signal_duration", signal_duration)
+    tau = _elapsed_time(time, delay, signal_duration)
+    values = target + (initial - target) * np.exp(-tau / time_constant)
+    values[time < delay] = initial
+    return _signal(
+        "monotonic_convergence",
+        time,
+        values,
+        initial=initial,
+        target=target,
+        time_constant=time_constant,
+        delay=delay,
+        signal_duration=signal_duration,
+    )
+
+
+def overshooting_convergence(
+    t: ArrayLike | None = None,
+    *,
+    duration: float = 10.0,
+    dt: float | None = None,
+    sample_rate: float | None = None,
+    start: float = 0.0,
+    initial: float = 0.0,
+    target: float = 1.0,
+    time_constant: float = 1.0,
+    overshoot: float = 0.2,
+    peak_time: float = 1.0,
+    delay: float = 0.0,
+    signal_duration: float | None = None,
+) -> Signal:
+    """Generate smooth convergence with one overshoot lobe.
+
+    The response is the sum of monotonic convergence and a decaying lobe:
+    ``target + delta * (-exp(-tau / time_constant)
+    + (overshoot + exp(-peak_time / time_constant))
+    * (tau / peak_time) * exp(1 - tau / peak_time))``, where
+    ``delta = target - initial``. The response is ``overshoot * delta`` beyond
+    the target at ``tau = peak_time``.
+    """
+
+    time = _resolve_time(t, duration, dt, sample_rate, start)
+    initial = _finite("initial", initial)
+    target = _finite("target", target)
+    time_constant = _positive("time_constant", time_constant)
+    overshoot = _nonnegative("overshoot", overshoot)
+    peak_time = _positive("peak_time", peak_time)
+    delay = _finite("delay", delay)
+    signal_duration = _optional_nonnegative("signal_duration", signal_duration)
+    tau = _elapsed_time(time, delay, signal_duration)
+    delta = target - initial
+    lobe_scale = overshoot + np.exp(-peak_time / time_constant)
+    lobe = (tau / peak_time) * np.exp(1.0 - tau / peak_time)
+    values = target + delta * (-np.exp(-tau / time_constant) + lobe_scale * lobe)
+    values[time < delay] = initial
+    return _signal(
+        "overshooting_convergence",
+        time,
+        values,
+        initial=initial,
+        target=target,
+        time_constant=time_constant,
+        overshoot=overshoot,
+        peak_time=peak_time,
+        lobe_scale=lobe_scale,
+        delay=delay,
+        signal_duration=signal_duration,
+    )
+
+
+def oscillatory_convergence(
+    t: ArrayLike | None = None,
+    *,
+    duration: float = 10.0,
+    dt: float | None = None,
+    sample_rate: float | None = None,
+    start: float = 0.0,
+    initial: float = 1.0,
+    target: float = 0.0,
+    damping_rate: float = 0.5,
+    frequency: float = 1.0,
+    delay: float = 0.0,
+    signal_duration: float | None = None,
+) -> Signal:
+    """Generate smooth damped oscillatory convergence around ``target``.
+
+    The response is
+    ``target + (initial - target) * exp(-damping_rate * tau)
+    * cos(2*pi*frequency*tau)``. When ``signal_duration`` is provided, the
+    response evolves for that many seconds after ``delay`` and then holds the
+    reached value.
+    """
+
+    time = _resolve_time(t, duration, dt, sample_rate, start)
+    initial = _finite("initial", initial)
+    target = _finite("target", target)
+    damping_rate = _nonnegative("damping_rate", damping_rate)
+    frequency = _nonnegative("frequency", frequency)
+    delay = _finite("delay", delay)
+    signal_duration = _optional_nonnegative("signal_duration", signal_duration)
+    tau = _elapsed_time(time, delay, signal_duration)
+    values = target + (initial - target) * np.exp(-damping_rate * tau) * np.cos(
+        2.0 * np.pi * frequency * tau
+    )
+    values[time < delay] = initial
+    return _signal(
+        "oscillatory_convergence",
+        time,
+        values,
+        initial=initial,
+        target=target,
+        damping_rate=damping_rate,
+        frequency=frequency,
+        delay=delay,
+        signal_duration=signal_duration,
+    )
+
+
 def oscillatory_response(
     t: ArrayLike | None = None,
     *,
@@ -753,6 +958,27 @@ def _elapsed_time(
     if signal_duration is not None:
         tau = np.minimum(tau, signal_duration)
     return tau
+
+
+def _targeted_ramp_values(
+    tau: NDArray[np.float64],
+    *,
+    initial: float,
+    target: float,
+    slope: float,
+) -> NDArray[np.float64]:
+    if target == initial:
+        return np.full_like(tau, initial, dtype=float)
+
+    rate = abs(slope)
+    if rate == 0.0:
+        raise ValueError("slope must be nonzero when target differs from initial")
+
+    direction = 1.0 if target > initial else -1.0
+    values = initial + direction * rate * tau
+    if direction > 0.0:
+        return np.minimum(values, target)
+    return np.maximum(values, target)
 
 
 def _active_window(
